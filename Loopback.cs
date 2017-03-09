@@ -7,7 +7,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace BattlefieldMorseCode
+namespace BFDecoder
 {
 	/// <summary>
 	/// A wrapper for the WasapiLoopbackCapture that will implement basic recording to a file that is overwrite only.
@@ -21,6 +21,11 @@ namespace BattlefieldMorseCode
 
 		public LoopbackRecorder()
 		{
+			_outputStream = new IgnoreDisposeStream(new MemoryStream());
+			_waveIn = new WasapiLoopbackCapture();
+			_waveIn.DataAvailable += OnDataAvailable;
+			_waveIn.RecordingStopped += OnRecordingStopped;
+			_writer = new WaveFileWriter(_outputStream, _waveIn.WaveFormat);
 		}
 
 		public void StartRecording()
@@ -29,11 +34,6 @@ namespace BattlefieldMorseCode
 			if (_isRecording == true)
 				return;
 
-			_outputStream = new IgnoreDisposeStream(new MemoryStream());
-			_waveIn = new WasapiLoopbackCapture();
-			_writer = new WaveFileWriter(_outputStream, _waveIn.WaveFormat);
-			_waveIn.DataAvailable += OnDataAvailable;
-			_waveIn.RecordingStopped += OnRecordingStopped;
 			_waveIn.StartRecording();
 			_isRecording = true;
 		}
@@ -56,7 +56,7 @@ namespace BattlefieldMorseCode
 
 			if (_writer != null)
 			{
-				_writer.Close();
+				_writer.Dispose();
 				_writer = null;
 
 			}
@@ -71,7 +71,7 @@ namespace BattlefieldMorseCode
 			{
 				throw e.Exception;
 			}
-		} // end void OnRecordingStopped
+		}
 
 		/// <summary>
 		/// Event handled when data becomes available.  The data will be written out to disk at this point.
@@ -79,12 +79,11 @@ namespace BattlefieldMorseCode
 		void OnDataAvailable(object sender, WaveInEventArgs e)
 		{
 			_writer.Write(e.Buffer, 0, e.BytesRecorded);
-			//int secondsRecorded = (int)(_writer.Length / _writer.WaveFormat.AverageBytesPerSecond);
 		}
 
 		public Stream GetRecordingStream()
 		{
-			return _outputStream.SourceStream;
+			return _outputStream;
 		}
 	}
 }

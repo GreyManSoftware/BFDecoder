@@ -1,4 +1,4 @@
-﻿using BattlefieldMorseCode;
+﻿using BFDecoder;
 using NAudio.Wave;
 using System;
 using System.Collections.Generic;
@@ -9,14 +9,16 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Windows.Forms;
+using NAudio.Dsp;
 
-namespace Tutorial6
+namespace BFDecoder
 {
     public partial class Form1 : Form
     {
 		LoopbackRecorder Recorder;
-		WaveFormat WaveFormat = new WaveFormat(44100, 1);
+		readonly WaveFormat WaveFormat = new WaveFormat(44100, 1);
 		WaveFormatConversionStream Wave;
+		Wave16ToFloatProvider WaveToFloat;
 		
 		public Form1()
         {
@@ -28,6 +30,7 @@ namespace Tutorial6
 		/// </summary>
 		private void openToolStripMenuItem_Click(object sender, EventArgs e)
 		{
+			SetupChart();
 			OpenFileDialog open = new OpenFileDialog();
 			open.InitialDirectory = @"c:\users\chris\appdata\local\temp";
 			open.Filter = "Wave File (*.wav)|*.wav;";
@@ -38,6 +41,7 @@ namespace Tutorial6
 			// This will almost certainly go south! ;)
 			WaveFileReader waveFileReader = new WaveFileReader(open.FileName);
 			Wave = new WaveFormatConversionStream(WaveFormat, WaveFormatConversionStream.CreatePcmStream(waveFileReader));
+			WaveToFloat = new Wave16ToFloatProvider(Wave);
 
 			processToolStripMenuItem.Enabled = true;
 			clearToolStripMenuItem.Enabled = true;
@@ -47,6 +51,7 @@ namespace Tutorial6
 
 		private void startToolStripMenuItem_Click(object sender, EventArgs e)
 		{
+			SetupChart();
 			Recorder = new LoopbackRecorder();
 			Recorder.StartRecording();
 			stopToolStripMenuItem.Enabled = true;
@@ -70,57 +75,50 @@ namespace Tutorial6
 				Stream audioStream = Recorder.GetRecordingStream();
 				audioStream.Position = 0;
 				Wave = new WaveFormatConversionStream(WaveFormat, new Wave32To16Stream(new WaveFileReader(audioStream)));
+				WaveToFloat = new Wave16ToFloatProvider(Wave);
 			}
 			ProcessAudio();
 		}
 
 		private void ProcessAudio()
 		{
-			SetupChart();
-
-			byte[] audioData = new byte[16 * 1024];
-			Int16[] convertedData = new Int16[audioData.Count() / sizeof(Int16)];
-
+			int bufSize = 8 * 1024;
+			byte[] audioData = new byte[bufSize];
 			int read = 0;
-			Int16 lastSample = 0;
-			int maxUpper = 500;
+			int sizeOfSample = sizeof(Single);
+			SampleAggregator sampleAgg = new SampleAggregator(bufSize / 4);
+			sampleAgg.PerformFFT = true;
+			sampleAgg.FftCalculated += new EventHandler<FftEventArgs>(func);
+
+			while (chart1.Series.Count > 0) { chart1.Series.RemoveAt(0); }
+			chart1.Series.Add("X");
+			chart1.Series.Add("Y");
 
 			while (Wave.Position < Wave.Length)
 			{
-				read = Wave.Read(audioData, 0, (16 * 1024));
+				read = WaveToFloat.Read(audioData, 0, bufSize);
 
 				// Might need this to check we haven't run out of stuff to read
 				if (read == 0)
 					break;
 
-				for (int i = 0; i < read / 2; i++)
+				for (int i = 0; i < read / sizeOfSample; i++)
 				{
-					convertedData[i] = BitConverter.ToInt16(audioData, i * 2);
-					//chart1.Series["Wave"].Points.Add(BitConverter.ToInt16(audioData, i * 2));
+					Single sample = BitConverter.ToSingle(audioData, i * sizeOfSample);
+					sampleAgg.Add(sample);
 				}
+			}
+		}
 
-				//foreach (var sample in convertedData)
-				//	chart1.Series["Wave"].Points.Add(sample);
+		private void func(object sender, FftEventArgs e)
+		{
+			foreach (var item in e.Result)
+			{
+				//Console.WriteLine(item.X);
+				//Console.WriteLine(item.Y);
 
-				int freqThreshold = 400;
-
-				foreach (var sample in convertedData)
-				{
-					if (sample > 0 && sample <= freqThreshold)
-						chart1.Series["Wave"].Points.Add(freqThreshold);
-
-					else if (sample > freqThreshold)
-						chart1.Series["Wave"].Points.Add(0);
-
-					else if (sample < 0 && sample <= -freqThreshold)
-						chart1.Series["Wave"].Points.Add(freqThreshold);
-
-					else if (sample < -freqThreshold)
-						chart1.Series["Wave"].Points.Add(0);
-				}
-
-				int mode = (from sample in convertedData where sample > 0 group sample by sample into g orderby g.Count() descending select g.Key).FirstOrDefault();
-				Console.WriteLine("Mode: {0}", mode);
+				chart1.Series["X"].Points.Add(item.X);
+				chart1.Series["Y"].Points.Add(item.Y);
 			}
 		}
 

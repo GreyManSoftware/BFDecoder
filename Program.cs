@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows.Forms;
 
-namespace Tutorial6
+namespace BFDecoder
 {
     static class Program
     {
